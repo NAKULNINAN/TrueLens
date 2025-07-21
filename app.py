@@ -9,8 +9,16 @@ from modules.perceptual_hash import PerceptualHasher
 from modules.ai_detection import AIContentDetector
 from modules.deepfake_detection import DeepfakeDetector
 from modules.utils import get_file_info, is_supported_format
-
 from modules.video_processor import VideoProcessor
+
+# Try to import deep learning detector
+try:
+    from modules.deep_learning_detector import DeepLearningDetector
+    DEEP_LEARNING_AVAILABLE = True
+except ImportError as e:
+    print(f"Deep learning detector not available: {e}")
+    DEEP_LEARNING_AVAILABLE = False
+    DeepLearningDetector = None
 
 # Page configuration
 st.set_page_config(
@@ -78,6 +86,18 @@ def main():
             value=False,
             help="Display hash values and model outputs"
         )
+        
+        use_deep_learning = st.checkbox(
+            "🧠 Use Deep Learning (Neural Networks)", 
+            value=DEEP_LEARNING_AVAILABLE,
+            disabled=not DEEP_LEARNING_AVAILABLE,
+            help="Enable advanced neural network analysis for higher accuracy"
+        )
+        
+        if DEEP_LEARNING_AVAILABLE:
+            st.success("🚀 Deep Learning: Available")
+        else:
+            st.warning("⚠️ Deep Learning: Not Available (install TensorFlow/PyTorch)")
     
     # File upload
     uploaded_file = st.file_uploader(
