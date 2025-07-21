@@ -2,6 +2,13 @@ import cv2
 import numpy as np
 from typing import Dict, List, Any, Tuple
 import os
+from scipy import signal, ndimage
+from scipy.spatial.distance import euclidean
+from skimage import feature, measure, filters
+from skimage.feature import local_binary_pattern, hog
+from skimage.measure import shannon_entropy
+import warnings
+warnings.filterwarnings('ignore')
 
 class DeepfakeDetector:
     """Detects deepfakes using facial analysis and inconsistency detection"""
@@ -118,6 +125,24 @@ class DeepfakeDetector:
         analysis['scores']['color_distribution'] = color_score
         if color_score > 0.6:
             analysis['anomalies'].append("Unnatural color distribution")
+        
+        # 7. Advanced frequency domain analysis
+        freq_score = self._analyze_frequency_artifacts(face_gray)
+        analysis['scores']['frequency_artifacts'] = freq_score
+        if freq_score > 0.7:
+            analysis['anomalies'].append("Suspicious frequency patterns")
+        
+        # 8. Micro-expression inconsistency analysis
+        micro_score = self._analyze_micro_expressions(face_gray)
+        analysis['scores']['micro_expressions'] = micro_score
+        if micro_score > 0.6:
+            analysis['anomalies'].append("Inconsistent micro-expressions")
+        
+        # 9. Symmetry analysis
+        symmetry_score = self._analyze_facial_symmetry(face_gray)
+        analysis['scores']['facial_symmetry'] = symmetry_score
+        if symmetry_score > 0.7:
+            analysis['anomalies'].append("Unnatural facial symmetry")
         
         return analysis
     
@@ -379,6 +404,155 @@ class DeepfakeDetector:
         except Exception:
             return 0.0
     
+    def _analyze_frequency_artifacts(self, face_gray: np.ndarray) -> float:
+        """Advanced frequency domain analysis for deepfake artifacts"""
+        try:
+            h, w = face_gray.shape
+            if h < 32 or w < 32:
+                return 0.5
+            
+            # 1. FFT analysis for unnatural frequency patterns
+            fft = np.fft.fft2(face_gray)
+            fft_magnitude = np.abs(fft)
+            fft_phase = np.angle(fft)
+            
+            # Analyze frequency distribution
+            center_h, center_w = h // 2, w // 2
+            
+            # Low frequency components (DC and nearby)
+            low_freq = fft_magnitude[:center_h//2, :center_w//2]
+            # High frequency components
+            high_freq = fft_magnitude[center_h//2:, center_w//2:]
+            
+            # Calculate frequency ratio
+            low_energy = np.sum(low_freq ** 2)
+            high_energy = np.sum(high_freq ** 2)
+            
+            if low_energy > 0:
+                freq_ratio = high_energy / low_energy
+                
+                # Deepfakes often have unnatural frequency distributions
+                if freq_ratio < 0.1:  # Too little high frequency
+                    freq_score = 0.8
+                elif freq_ratio > 2.0:  # Too much high frequency noise
+                    freq_score = 0.7
+                else:
+                    freq_score = 0.3
+            else:
+                freq_score = 0.9  # Very suspicious
+            
+            # 2. Phase coherence analysis
+            phase_coherence = np.std(fft_phase)
+            if phase_coherence < 1.0:  # Too coherent, might be artificial
+                freq_score = max(freq_score, 0.6)
+            
+            return freq_score
+            
+        except Exception:
+            return 0.0
+    
+    def _analyze_micro_expressions(self, face_gray: np.ndarray) -> float:
+        """Analyze micro-expressions and facial muscle consistency"""
+        try:
+            h, w = face_gray.shape
+            if h < 64 or w < 64:
+                return 0.5
+            
+            # Divide face into expression-relevant regions
+            # Eyes region (upper 1/3)
+            eyes_region = face_gray[:h//3, :]
+            # Mouth region (lower 1/3)
+            mouth_region = face_gray[2*h//3:, :]
+            # Cheek regions (middle sides)
+            left_cheek = face_gray[h//3:2*h//3, :w//3]
+            right_cheek = face_gray[h//3:2*h//3, 2*w//3:]
+            
+            # Calculate gradient patterns in each region
+            regions = [eyes_region, mouth_region, left_cheek, right_cheek]
+            region_patterns = []
+            
+            for region in regions:
+                if region.size > 100:  # Ensure minimum size
+                    # Calculate HOG features for muscle pattern analysis
+                    try:
+                        hog_features = hog(region, orientations=8, pixels_per_cell=(8, 8),
+                                         cells_per_block=(1, 1), visualize=False)
+                        region_patterns.append(np.std(hog_features))
+                    except:
+                        region_patterns.append(0.0)
+                else:
+                    region_patterns.append(0.0)
+            
+            # Check for consistency between regions
+            if len(region_patterns) > 1:
+                pattern_std = np.std(region_patterns)
+                pattern_mean = np.mean(region_patterns)
+                
+                if pattern_mean > 0:
+                    inconsistency = pattern_std / pattern_mean
+                    
+                    # High inconsistency might indicate deepfake
+                    if inconsistency > 1.5:
+                        micro_score = 0.8
+                    elif inconsistency < 0.2:  # Too consistent
+                        micro_score = 0.7
+                    else:
+                        micro_score = 0.3
+                else:
+                    micro_score = 0.6
+            else:
+                micro_score = 0.5
+            
+            return micro_score
+            
+        except Exception:
+            return 0.0
+    
+    def _analyze_facial_symmetry(self, face_gray: np.ndarray) -> float:
+        """Analyze facial symmetry for unnatural patterns"""
+        try:
+            h, w = face_gray.shape
+            if h < 50 or w < 50:
+                return 0.5
+            
+            # Split face vertically into left and right halves
+            mid_point = w // 2
+            left_half = face_gray[:, :mid_point]
+            right_half = face_gray[:, mid_point:]
+            
+            # Flip right half horizontally for comparison
+            right_half_flipped = np.fliplr(right_half)
+            
+            # Ensure both halves have same dimensions
+            min_width = min(left_half.shape[1], right_half_flipped.shape[1])
+            left_half = left_half[:, :min_width]
+            right_half_flipped = right_half_flipped[:, :min_width]
+            
+            # Calculate similarity between halves
+            diff = np.abs(left_half.astype(np.float32) - right_half_flipped.astype(np.float32))
+            mean_diff = np.mean(diff)
+            
+            # Calculate texture similarity
+            left_std = np.std(left_half)
+            right_std = np.std(right_half_flipped)
+            
+            texture_diff = abs(left_std - right_std) / (max(left_std, right_std) + 1e-6)
+            
+            # Real faces have natural asymmetry, perfect symmetry is suspicious
+            if mean_diff < 5.0:  # Too similar
+                symmetry_score = 0.9
+            elif mean_diff > 40.0:  # Too different
+                symmetry_score = 0.6
+            elif texture_diff < 0.1:  # Texture too similar
+                symmetry_score = 0.8
+            else:
+                symmetry_score = 0.2
+            
+            return symmetry_score
+            
+        except Exception:
+            return 0.0
+    
     def _calculate_deepfake_probability(self, face_analyses: List[Dict]) -> float:
         """Calculate overall deepfake probability from individual face analyses"""
         if not face_analyses:
@@ -386,12 +560,15 @@ class DeepfakeDetector:
         
         # Weight different analysis components for better deepfake detection
         weights = {
-            'region_consistency': 0.25,
-            'eye_anomalies': 0.20,
-            'skin_texture': 0.25,
-            'lighting_consistency': 0.15,
-            'edge_consistency': 0.10,
-            'color_distribution': 0.05
+            'region_consistency': 0.18,
+            'eye_anomalies': 0.15,
+            'skin_texture': 0.18,
+            'lighting_consistency': 0.12,
+            'edge_consistency': 0.08,
+            'color_distribution': 0.05,
+            'frequency_artifacts': 0.10,
+            'micro_expressions': 0.08,
+            'facial_symmetry': 0.06
         }
         
         all_probabilities = []

@@ -3,6 +3,12 @@ import numpy as np
 from PIL import Image
 import os
 from typing import Dict, List, Any
+from scipy import ndimage, stats
+from skimage import feature, measure, filters, segmentation
+from skimage.feature import local_binary_pattern, greycomatrix, greycoprops
+from skimage.measure import shannon_entropy
+import warnings
+warnings.filterwarnings('ignore')
 
 class AIContentDetector:
     """Detects AI-generated content using various heuristics and analysis"""
@@ -96,30 +102,68 @@ class AIContentDetector:
             }
     
     def _analyze_noise_patterns(self, gray_image: np.ndarray) -> float:
-        """Analyze noise patterns that might indicate AI generation"""
+        """Advanced noise analysis with multiple sophisticated techniques"""
         try:
-            # Apply Gaussian blur and subtract to isolate noise
-            blurred = cv2.GaussianBlur(gray_image, (5, 5), 0)
-            noise = cv2.absdiff(gray_image, blurred)
+            h, w = gray_image.shape
+            if h < 64 or w < 64:
+                return 0.5  # Image too small for reliable analysis
             
-            # Calculate noise statistics
-            noise_mean = np.mean(noise)
-            noise_std = np.std(noise)
+            # 1. Multi-scale noise analysis
+            scales = [1, 2, 4]
+            noise_scores = []
             
-            # AI-generated images often have specific noise characteristics
-            # More sophisticated noise analysis
-            noise_ratio = noise_std / (noise_mean + 1e-6)
+            for scale in scales:
+                kernel_size = 3 + 2 * scale
+                blurred = cv2.GaussianBlur(gray_image, (kernel_size, kernel_size), scale)
+                noise = cv2.absdiff(gray_image.astype(np.float32), blurred.astype(np.float32))
+                
+                # Calculate noise characteristics
+                noise_energy = np.sum(noise ** 2) / noise.size
+                noise_entropy = shannon_entropy(noise.astype(np.uint8))
+                
+                # AI images often have very low noise entropy and energy
+                if noise_entropy < 4.0 and noise_energy < 50:
+                    noise_scores.append(0.9)  # Very suspicious
+                elif noise_entropy < 5.5:
+                    noise_scores.append(0.7)
+                else:
+                    noise_scores.append(0.2)
             
-            # AI images often have unusual noise patterns
-            # Too little noise (over-smoothed) or specific noise patterns
-            if noise_std < 5.0:  # Very smooth, likely AI
-                score = 0.8
-            elif noise_ratio > 1.5:  # High noise variation
-                score = 0.7
+            # 2. Frequency domain noise analysis
+            fft = np.fft.fft2(gray_image)
+            fft_magnitude = np.abs(fft)
+            
+            # Check for unnatural frequency patterns
+            high_freq_ratio = np.mean(fft_magnitude[h//4:, w//4:]) / (np.mean(fft_magnitude) + 1e-6)
+            
+            if high_freq_ratio < 0.1:  # Too little high frequency content
+                noise_scores.append(0.8)
+            elif high_freq_ratio > 0.5:
+                noise_scores.append(0.3)
             else:
-                score = min(1.0, noise_ratio / 2.0)
+                noise_scores.append(0.1)
             
-            return score
+            # 3. Local Binary Pattern analysis for texture regularity
+            radius = 3
+            n_points = 8 * radius
+            lbp = local_binary_pattern(gray_image, n_points, radius, method='uniform')
+            
+            # Calculate LBP histogram
+            lbp_hist, _ = np.histogram(lbp.ravel(), bins=n_points + 2, range=(0, n_points + 2))
+            lbp_hist = lbp_hist.astype(float)
+            lbp_hist /= (lbp_hist.sum() + 1e-6)
+            
+            # AI images often have too uniform LBP patterns
+            lbp_entropy = -np.sum(lbp_hist * np.log(lbp_hist + 1e-10))
+            max_entropy = np.log(len(lbp_hist))
+            normalized_entropy = lbp_entropy / max_entropy
+            
+            if normalized_entropy < 0.6:  # Too uniform
+                noise_scores.append(0.8)
+            else:
+                noise_scores.append(0.2)
+            
+            return np.mean(noise_scores)
             
         except Exception:
             return 0.0

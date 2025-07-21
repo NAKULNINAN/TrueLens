@@ -4,6 +4,12 @@ import os
 from PIL import Image
 import numpy as np
 from typing import Dict, List, Any
+import cv2
+from scipy.spatial.distance import hamming, euclidean
+from skimage.feature import local_binary_pattern
+from skimage.measure import structural_similarity as ssim
+import warnings
+warnings.filterwarnings('ignore')
 
 class PerceptualHasher:
     """Handles perceptual hashing for duplicate detection"""
