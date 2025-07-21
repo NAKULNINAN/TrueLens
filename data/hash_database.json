@@ -1,0 +1,52 @@
+{
+  "hashes": {
+    "tmp25kd7ldz.jpg": {
+      "average_hash": "0818181818181818",
+      "perceptual_hash": "9966999366936666",
+      "difference_hash": "10b2b03030307272",
+      "wavelet_hash": "183c3c3c3c3c3e3e"
+    },
+    "tmp0w87movq.jpg": {
+      "average_hash": "0018181818181818",
+      "perceptual_hash": "cc66993333393273",
+      "difference_hash": "30b0b03430703030",
+      "wavelet_hash": "1c3c3c3c3e3c3c3c"
+    },
+    "tmprr2qpgev.jpg": {
+      "average_hash": "ffe7e7e7e7e7e7c7",
+      "perceptual_hash": "b3a2ccce98999927",
+      "difference_hash": "084d4d4d4cc94d0f",
+      "wavelet_hash": "ffe7c7c3e7240100"
+    },
+    "tmpnm404cfh.jpg": {
+      "average_hash": "e7e7c7c7e7e7e7c7",
+      "perceptual_hash": "b366cece988d9889",
+      "difference_hash": "4d4d1e9e4ccd4d1f",
+      "wavelet_hash": "e7c7c3c3c3672700"
+    },
+    "tmpvp8mpbx8.jpg": {
+      "average_hash": "e7e7e7e7e7e7e7e7",
+      "perceptual_hash": "b36626e632839b8d",
+      "difference_hash": "4d4f0e0d0ccccd4d",
+      "wavelet_hash": "e7c3c3c3c3672603"
+    },
+    "tmpfand94ch.jpg": {
+      "average_hash": "e7e7c7c7c7e7e7c7",
+      "perceptual_hash": "b3cc8ccf3cc32499",
+      "difference_hash": "4d4d0d8d8ecccc9f",
+      "wavelet_hash": "e7c3c3c3c3476603"
+    },
+    "tmpyzdszc0e.jpg": {
+      "average_hash": "7e7e5e0401606828",
+      "perceptual_hash": "c89ccdef321634a9",
+      "difference_hash": "b2f2b0bd91a5d1d1",
+      "wavelet_hash": "7e7e7e1c49706828"
+    }
+  },
+  "metadata": {
+    "total_files": 7,
+    "created_date": "2025-07-20",
+    "version": "1.0",
+    "description": "Perceptual hash database for duplicate detection"
+  }
+}
