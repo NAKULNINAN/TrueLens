@@ -7,7 +7,7 @@ from typing import Dict, List, Any
 import cv2
 from scipy.spatial.distance import hamming, euclidean
 from skimage.feature import local_binary_pattern
-from skimage.measure import structural_similarity as ssim
+from skimage.metrics import structural_similarity as ssim
 import warnings
 warnings.filterwarnings('ignore')
 

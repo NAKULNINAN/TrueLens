@@ -11,7 +11,16 @@ from modules.deepfake_detection import DeepfakeDetector
 from modules.utils import get_file_info, is_supported_format
 from modules.video_processor import VideoProcessor
 
-# Try to import deep learning detector
+# Try to import ML detector
+try:
+    from modules.ml_detector import MLDetector
+    ML_AVAILABLE = True
+except ImportError as e:
+    print(f"ML detector not available: {e}")
+    ML_AVAILABLE = False
+    MLDetector = None
+
+# Try to import deep learning detector (fallback)
 try:
     from modules.deep_learning_detector import DeepLearningDetector
     DEEP_LEARNING_AVAILABLE = True
@@ -47,23 +56,40 @@ def load_models():
         deepfake_detector = DeepfakeDetector()
         video_processor = VideoProcessor()
         
-        st.success("Models loaded successfully!")
-        return hasher, ai_detector, deepfake_detector, video_processor
+        # Initialize ML detector if available
+        ml_detector = None
+        if ML_AVAILABLE:
+            try:
+                ml_detector = MLDetector()
+                st.success("🧠 ML models loaded successfully! (~80% accuracy)")
+            except Exception as e:
+                st.warning(f"Could not load ML detector: {e}")
+                ml_detector = None
+        else:
+            st.info("🤖 Traditional computer vision models loaded")
+        
+        return hasher, ai_detector, deepfake_detector, video_processor, ml_detector
+        
     except ImportError as e:
         st.error(f"Import error: {str(e)}. Please check if all required packages are installed.")
         st.info("Required packages: opencv-python, imagehash, pillow, numpy, scikit-image, moviepy")
-        return None, None, None, None
+        return None, None, None, None, None
     except Exception as e:
         st.error(f"Error loading models: {str(e)}")
         st.info("This might be a temporary issue. Try refreshing the page.")
-        return None, None, None, None
+        return None, None, None, None, None
 
 def main():
     st.title("🔍 Media Authenticity Verification System")
     st.markdown("Upload an image or video to verify its authenticity and detect duplicates, AI-generated content, or deepfakes.")
     
     # Load models
-    hasher, ai_detector, deepfake_detector, video_processor = load_models()
+    model_result = load_models()
+    if len(model_result) == 5:
+        hasher, ai_detector, deepfake_detector, video_processor, ml_detector = model_result
+    else:
+        hasher, ai_detector, deepfake_detector, video_processor = model_result
+        ml_detector = None
     
     if None in [hasher, ai_detector, deepfake_detector, video_processor]:
         st.error("Failed to load detection models. Please check your installation.")
@@ -126,7 +152,7 @@ def main():
         if file_info['category'] == 'image':
             try:
                 image = Image.open(uploaded_file)
-                st.image(image, caption="Uploaded Image", use_column_width=True)
+                st.image(image, caption="Uploaded Image", use_container_width=True)
             except Exception as e:
                 st.error(f"Error displaying image: {str(e)}")
         elif file_info['category'] == 'video':

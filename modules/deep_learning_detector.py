@@ -1,9 +1,4 @@
 import numpy as np
-import tensorflow as tf
-from tensorflow import keras
-import torch
-import torchvision.transforms as transforms
-from transformers import AutoFeatureExtractor, AutoModel
 import cv2
 from PIL import Image
 import warnings
@@ -12,6 +7,28 @@ import os
 import requests
 from io import BytesIO
 import json
+
+# Try to import deep learning libraries
+try:
+    import tensorflow as tf
+    TF_AVAILABLE = True
+except ImportError:
+    tf = None
+    TF_AVAILABLE = False
+
+try:
+    import onnxruntime as ort
+    ORT_AVAILABLE = True
+except ImportError:
+    ort = None
+    ORT_AVAILABLE = False
+
+try:
+    from huggingface_hub import InferenceApi
+    HF_AVAILABLE = True
+except ImportError:
+    InferenceApi = None
+    HF_AVAILABLE = False
 
 warnings.filterwarnings('ignore')
 
@@ -23,12 +40,24 @@ class DeepLearningDetector:
     
     def __init__(self):
         self.models = {}
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.available = TF_AVAILABLE or TORCH_AVAILABLE
+        
+        # Set device if PyTorch is available
+        if TORCH_AVAILABLE:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = "CPU (PyTorch not available)"
+        
         self.model_urls = {
             'ai_detector': 'https://huggingface.co/umm-maybe/AI-image-detector/resolve/main/pytorch_model.bin',
             'deepfake_detector': 'https://github.com/selimsef/dfdc_deepfake_challenge/releases/download/v1.0/final_111_DeepFakeClassifier_tf_efficientnet_b7_ns_0_36',
         }
-        self.load_models()
+        
+        # Only try to load models if we have the required dependencies
+        if self.available:
+            self.load_models()
+        else:
+            print("Warning: Deep learning dependencies not available. Install TensorFlow or PyTorch for neural network features.")
     
     def load_models(self):
         """Load and initialize deep learning models"""
@@ -48,6 +77,10 @@ class DeepLearningDetector:
     def _load_ai_detector(self):
         """Load AI-generated content detection model"""
         try:
+            if not TF_AVAILABLE:
+                self.models['ai_detector'] = None
+                return
+                
             # Create a simple CNN model for AI detection
             model = keras.Sequential([
                 keras.layers.Conv2D(32, 3, activation='relu', input_shape=(224, 224, 3)),
@@ -84,6 +117,10 @@ class DeepLearningDetector:
     def _load_deepfake_detector(self):
         """Load deepfake detection model using EfficientNet"""
         try:
+            if not TF_AVAILABLE:
+                self.models['deepfake_detector'] = None
+                return
+                
             # Create EfficientNet-based deepfake detector
             base_model = keras.applications.EfficientNetB4(
                 weights='imagenet',
@@ -126,6 +163,10 @@ class DeepLearningDetector:
     def _load_quality_detector(self):
         """Load image quality assessment model"""
         try:
+            if not TF_AVAILABLE:
+                self.models['quality_detector'] = None
+                return
+                
             # Simple quality assessment network
             model = keras.Sequential([
                 keras.layers.Conv2D(64, 3, activation='relu', input_shape=(224, 224, 3)),
@@ -409,7 +450,7 @@ class DeepLearningDetector:
                 model_info[model_name] = {'status': 'Not available'}
         
         model_info['device'] = str(self.device)
-        model_info['tensorflow_version'] = tf.__version__
-        model_info['pytorch_version'] = torch.__version__
+        model_info['tensorflow_version'] = tf.__version__ if tf else "Not Available"
+        model_info['pytorch_version'] = torch.__version__ if torch else "Not Available"
         
         return model_info

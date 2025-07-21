@@ -5,7 +5,9 @@ import os
 from typing import Dict, List, Any
 from scipy import ndimage, stats
 from skimage import feature, measure, filters, segmentation
-from skimage.feature import local_binary_pattern, greycomatrix, greycoprops
+from skimage.feature import local_binary_pattern
+# Note: greycomatrix and greycoprops were removed in newer scikit-image versions
+# We'll implement simple alternatives or skip these features
 from skimage.measure import shannon_entropy
 import warnings
 warnings.filterwarnings('ignore')
