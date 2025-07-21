@@ -30,13 +30,24 @@ if 'results' not in st.session_state:
 def load_models():
     """Load all detection models"""
     try:
+        # Create necessary directories
+        os.makedirs('data', exist_ok=True)
+        
+        # Initialize models with better error handling
         hasher = PerceptualHasher()
         ai_detector = AIContentDetector()
         deepfake_detector = DeepfakeDetector()
         video_processor = VideoProcessor()
+        
+        st.success("Models loaded successfully!")
         return hasher, ai_detector, deepfake_detector, video_processor
+    except ImportError as e:
+        st.error(f"Import error: {str(e)}. Please check if all required packages are installed.")
+        st.info("Required packages: opencv-python, imagehash, pillow, numpy, scikit-image, moviepy")
+        return None, None, None, None
     except Exception as e:
         st.error(f"Error loading models: {str(e)}")
+        st.info("This might be a temporary issue. Try refreshing the page.")
         return None, None, None, None
 
 def main():
@@ -391,4 +402,9 @@ def display_results(results, show_technical_details):
             st.info("Enable 'Show Technical Details' in the sidebar to view additional information.")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        st.error(f"Application startup error: {str(e)}")
+        st.info("Please refresh the page or contact support if the issue persists.")
+        st.exception(e)
