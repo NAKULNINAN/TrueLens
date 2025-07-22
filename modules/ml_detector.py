@@ -2,13 +2,53 @@ import numpy as np
 import cv2
 from PIL import Image
 import warnings
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Generator, Tuple
 import os
 import requests
 from io import BytesIO
 import json
 import tempfile
 import base64
+import threading
+import time
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+import multiprocessing
+import asyncio
+from collections import deque
+import hashlib
+import pickle
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+# Advanced scientific computing libraries
+try:
+    from scipy import stats, ndimage
+    from scipy.fft import fft2, fftfreq
+    SCIPY_AVAILABLE = True
+except ImportError:
+    stats = None
+    ndimage = None
+    fft2 = None
+    fftfreq = None
+    SCIPY_AVAILABLE = False
+
+try:
+    from skimage import feature, filters, measure, segmentation
+    from skimage.feature import local_binary_pattern, greycomatrix, greycoprops
+    from skimage.filters import gabor
+    SKIMAGE_AVAILABLE = True
+except ImportError:
+    feature = None
+    filters = None
+    measure = None
+    segmentation = None
+    local_binary_pattern = None
+    greycomatrix = None
+    greycoprops = None
+    gabor = None
+    SKIMAGE_AVAILABLE = False
+
 # Simplified ML without sklearn for now due to compatibility issues
 # from sklearn.ensemble import RandomForestClassifier
 
@@ -31,13 +71,112 @@ except ImportError:
 
 warnings.filterwarnings('ignore')
 
+@dataclass
+class AnalysisRequest:
+    """Data structure for analysis requests"""
+    image_path: str
+    request_id: str
+    priority: int = 5  # 1-10, lower is higher priority
+    timestamp: datetime = None
+    
+    def __post_init__(self):
+        if self.timestamp is None:
+            self.timestamp = datetime.now()
+
+@dataclass
+class AnalysisResult:
+    """Data structure for analysis results"""
+    request_id: str
+    image_path: str
+    ai_probability: float
+    confidence: float
+    processing_time: float
+    model_results: Dict[str, Any]
+    timestamp: datetime = None
+    
+    def __post_init__(self):
+        if self.timestamp is None:
+            self.timestamp = datetime.now()
+
+class ResultsCache:
+    """LRU Cache for analysis results"""
+    
+    def __init__(self, max_size: int = 1000, ttl_minutes: int = 60):
+        self.max_size = max_size
+        self.ttl = timedelta(minutes=ttl_minutes)
+        self.cache = {}
+        self.access_times = deque()
+        self._lock = threading.Lock()
+    
+    def _generate_key(self, image_path: str) -> str:
+        """Generate cache key from image path and modification time"""
+        try:
+            mtime = os.path.getmtime(image_path)
+            file_hash = hashlib.md5(f"{image_path}:{mtime}".encode()).hexdigest()[:16]
+            return file_hash
+        except (OSError, IOError):
+            return hashlib.md5(image_path.encode()).hexdigest()[:16]
+    
+    def get(self, image_path: str) -> Optional[AnalysisResult]:
+        """Get cached result if available and not expired"""
+        with self._lock:
+            key = self._generate_key(image_path)
+            
+            if key in self.cache:
+                result, timestamp = self.cache[key]
+                if datetime.now() - timestamp < self.ttl:
+                    # Update access time
+                    self.access_times.append((key, datetime.now()))
+                    return result
+                else:
+                    # Expired, remove
+                    del self.cache[key]
+            
+            return None
+    
+    def put(self, image_path: str, result: AnalysisResult):
+        """Store result in cache"""
+        with self._lock:
+            key = self._generate_key(image_path)
+            current_time = datetime.now()
+            
+            # Evict if at capacity
+            if len(self.cache) >= self.max_size:
+                self._evict_oldest()
+            
+            self.cache[key] = (result, current_time)
+            self.access_times.append((key, current_time))
+    
+    def _evict_oldest(self):
+        """Evict least recently used item"""
+        if self.access_times:
+            oldest_key, _ = self.access_times.popleft()
+            if oldest_key in self.cache:
+                del self.cache[oldest_key]
+    
+    def clear_expired(self):
+        """Clear all expired entries"""
+        with self._lock:
+            current_time = datetime.now()
+            expired_keys = []
+            
+            for key, (result, timestamp) in self.cache.items():
+                if current_time - timestamp >= self.ttl:
+                    expired_keys.append(key)
+            
+            for key in expired_keys:
+                del self.cache[key]
+            
+            # Clean access times
+            self.access_times = deque([(k, t) for k, t in self.access_times if k in self.cache])
+
 class MLDetector:
     """
     Advanced ML-based detection using ONNX models and HuggingFace inference
     Achieves ~80% accuracy on AI detection and deepfake detection
     """
     
-    def __init__(self):
+    def __init__(self, enable_realtime=True, max_workers=4):
         self.models = {}
         self.hf_client = None
         self.available = ORT_AVAILABLE or HF_AVAILABLE
@@ -50,6 +189,18 @@ class MLDetector:
             'dalle_detector': 'Organika/real-vs-ai-art',
             'midjourney_detector': 'Organika/sdxl-detector'
         }
+        
+        # Real-time processing setup
+        self.enable_realtime = enable_realtime
+        self.max_workers = max_workers
+        self.results_cache = ResultsCache(max_size=1000, ttl_minutes=60)
+        
+        if self.enable_realtime:
+            self.analysis_queue = Queue()
+            self.results_queue = Queue()
+            self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+            self.processing_active = False
+            self.worker_threads = []
         
         # Initialize clients and models
         if self.available:
@@ -110,32 +261,46 @@ class MLDetector:
             # 1. Statistical features
             features['mean_intensity'] = np.mean(gray)
             features['std_intensity'] = np.std(gray)
-            features['skewness'] = self._calculate_skewness(gray)
-            features['kurtosis'] = self._calculate_kurtosis(gray)
+            features['skewness'] = stats.skew(gray, axis=None) if SCIPY_AVAILABLE else self._calculate_skewness(gray)
+            features['kurtosis'] = stats.kurtosis(gray, axis=None) if SCIPY_AVAILABLE else self._calculate_kurtosis(gray)
             
-            # 2. Texture features using LBP
-            lbp = self._calculate_lbp(gray)
+            # 2. Texture features using LBP and GLCM
+            lbp = local_binary_pattern(gray, 8, 1, method='uniform') if SKIMAGE_AVAILABLE else self._calculate_lbp(gray)
             features['lbp_uniformity'] = self._calculate_uniformity(lbp)
             features['lbp_entropy'] = self._calculate_entropy(lbp)
+            if SKIMAGE_AVAILABLE:
+                # Downsample for GLCM to improve performance
+                gray_small = cv2.resize(gray, (256, 256))
+                glcm = greycomatrix(gray_small, [1], [0], 256, symmetric=True, normed=True)
+                features['contrast'] = greycoprops(glcm, 'contrast')[0, 0]
+                features['dissimilarity'] = greycoprops(glcm, 'dissimilarity')[0, 0]
+                features['homogeneity'] = greycoprops(glcm, 'homogeneity')[0, 0]
             
-            # 3. Edge features
+            # 3. Texture analysis using Gabor filter
+            if SKIMAGE_AVAILABLE:
+                gabor_response, _ = gabor(gray, frequency=0.6)
+                features['gabor_mean'] = gabor_response.mean()
+                features['gabor_var'] = gabor_response.var()
+            
+            # 4. Edge features
             edges = cv2.Canny(gray, 50, 150)
             features['edge_density'] = np.sum(edges > 0) / edges.size
             features['edge_strength'] = np.mean(edges[edges > 0]) if np.any(edges) else 0
             
-            # 4. Frequency domain features
-            fft = np.fft.fft2(gray)
-            fft_magnitude = np.abs(fft)
-            features['freq_energy'] = np.sum(fft_magnitude ** 2)
-            features['high_freq_ratio'] = self._calculate_high_freq_ratio(fft_magnitude)
+            # 5. Frequency domain features
+            if SCIPY_AVAILABLE:
+                fft = fft2(gray)
+                fft_magnitude = np.abs(fft)
+                features['freq_energy'] = np.sum(fft_magnitude ** 2)
+                features['high_freq_ratio'] = self._calculate_high_freq_ratio(fft_magnitude)
             
-            # 5. Color features
+            # 6. Color features
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
             features['hue_variance'] = np.var(hsv[:,:,0])
             features['saturation_mean'] = np.mean(hsv[:,:,1])
             features['value_std'] = np.std(hsv[:,:,2])
             
-            # 6. Compression artifacts
+            # 7. Compression artifacts
             features['jpeg_quality'] = self._estimate_jpeg_quality(image)
             
             return features
