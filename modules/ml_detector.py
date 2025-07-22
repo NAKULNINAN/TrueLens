@@ -46,7 +46,9 @@ class MLDetector:
         self.hf_models = {
             'ai_detector': 'umm-maybe/AI-image-detector',
             'deepfake_detector': 'rizvandwiki/deepfake-detection',
-            'nsfw_detector': 'Falconsai/nsfw_image_detection'
+            'diffusion_detector': 'organika/sdxl-detector',
+            'dalle_detector': 'Organika/real-vs-ai-art',
+            'midjourney_detector': 'Organika/sdxl-detector'
         }
         
         # Initialize clients and models
